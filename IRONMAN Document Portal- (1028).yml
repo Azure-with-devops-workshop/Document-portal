@@ -1,0 +1,87 @@
+trigger:
+  branches:
+    include:
+    - main
+pool:
+  vmImage: windows-latest
+stages:
+- stage: Build
+  displayName: 'Build_Stage'
+  jobs:
+  - job: Build_process
+    displayName: 'Build Process'
+    steps:
+    - task: NuGetToolInstaller@1
+      inputs:
+        versionSpec: ''
+    - task: NuGetCommand@2
+      inputs:
+        command: 'restore'
+        restoreSolution: '**/*.sln'
+        feedsToUse: 'select'
+    - task: MSBuild@1
+      inputs:
+        solution: '**/*.sln'
+        platform: 'any CPU'
+        configuration: 'Release'
+        msbuildArguments: '/p:DeployOnBuild=true /p:WebPublishMethod=FileSystem /p:publishUrl="$(build.artifactstagingdirectory)\\WebPublish" /p:DeployDefaultTarget=WebPublish'
+    - task: CopyFiles@2
+      inputs:
+        SourceFolder: 'Terraform_Scripts'
+        Contents: '**'
+        TargetFolder: '$(build.artifactstagingdirectory)/terraform'
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'drop'
+        publishLocation: 'Container'
+- stage: IAC
+  displayName: 'IAC_Stage'
+  jobs:
+  - job: ICA_process
+    displayName: 'IAC_Stage'
+    steps:
+    - task: TerraformInstaller@1
+      inputs:
+        terraformVersion: 'latest'
+    - task: TerraformTaskV4@4
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        workingDirectory: 'terraform'
+        backendServiceArm: 'Pay-As-You-Go (f5392dc0-e8b7-499d-97bd-9bb2fd1c47fc)'
+        backendAzureRmResourceGroupName: 'KIET_Batch2'
+        backendAzureRmStorageAccountName: 'kietbatchstore'
+        backendAzureRmContainerName: 'Ironman'
+        backendAzureRmKey: '21JN1A4558.tfstate'
+    - task: TerraformTaskV4@4
+      inputs:
+        provider: 'azurerm'
+        command: 'plan'
+        workingDirectory: 'terraform'
+        environmentServiceNameAzureRM: 'Pay-As-You-Go (f5392dc0-e8b7-499d-97bd-9bb2fd1c47fc)'
+    - task: TerraformTaskV4@4
+      inputs:
+        provider: 'azurerm'
+        command: 'apply'
+        workingDirectory: 'terraform'
+        environmentServiceNameAzureRM: 'Pay-As-You-Go (f5392dc0-e8b7-499d-97bd-9bb2fd1c47fc)'
+- stage: Deploy
+  displayName: 'App_Deploy'
+  jobs:
+  - job: App_Process
+    displayName: 'App_stage'
+    steps:
+    - task: DownloadBuildArtifacts@1
+      inputs:
+        buildType: 'current'
+        downloadType: 'specific'
+        downloadPath: '$(System.ArtifactsDirectory)'
+    - task: AzureRmWebAppDeployment@4
+      inputs:
+        ConnectionType: 'AzureRM'
+        azureSubscription: 'Pay-As-You-Go (f5392dc0-e8b7-499d-97bd-9bb2fd1c47fc)'
+        appType: 'webApp'
+        WebAppName: 'purnaservice'
+        packageForLinux: '$(Build.ArtifactstagingDirectory)/drop/webpublish'
+
